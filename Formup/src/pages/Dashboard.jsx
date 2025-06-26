@@ -1,7 +1,6 @@
-
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { getForms, deleteForm } from '../services/api';
 import Button from '../components/atoms/Button';
@@ -13,64 +12,61 @@ const Dashboard = () => {
   const queryClient = useQueryClient();
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [selectedFormId, setSelectedFormId] = useState(null);
-  const [forms, setForms] = useState([]);
-  const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const [initialLoading, setInitialLoading] = useState(true);
 
-  const fetchForms = async (pageNumber) => {
-    setLoading(true);
-    try {
-      const res = await getForms(pageNumber);
-      if (Array.isArray(res.forms)) {
-        setForms((prev) => {
-          const existingIds = new Set(prev.map((f) => f._id));
-          const newForms = res.forms.filter((f) => !existingIds.has(f._id));
-          return [...prev, ...newForms];
-        });
-        setHasMore(res.hasMore);
-      } else {
-        console.error('Unexpected response format:', res);
-        setHasMore(false);
-      }
-    } catch (err) {
-      console.error('Error fetching forms:', err);
-    } finally {
-      setLoading(false);
-      setInitialLoading(false);
-    }
-  };
+  const {
+    data,
+    error,
+    fetchNextPage,
+    hasNextPage,
+    isFetching,
+    isFetchingNextPage,
+    isLoading,
+    isError,
+  } = useInfiniteQuery({
+    queryKey: ['forms'],
+    queryFn: ({ pageParam = 1 }) => getForms(pageParam),
+    getNextPageParam: (lastPage) => {
+      return lastPage.hasMore ? lastPage.nextPage || lastPage.page + 1 : undefined;
+    },
+    initialPageParam: 1,
+  });
 
-  useEffect(() => {
-    fetchForms(page);
-  }, [page]);
-
-  useEffect(() => {
-    const handleScroll = () => {
-      if (
-        window.innerHeight + window.scrollY >= document.body.scrollHeight * 0.8 &&
-        !loading &&
-        hasMore
-      ) {
-        setPage((prev) => prev + 1);
-      }
-    };
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, [loading, hasMore]);
-
-  
   const deleteMutation = useMutation({
     mutationFn: deleteForm,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['forms'] });
-      setForms((prev) => prev.filter((f) => f._id !== selectedFormId));
+    onSuccess: (_, formId) => {
+      
+      queryClient.setQueryData(['forms'], (oldData) => {
+        if (!oldData) return oldData;
+        return {
+          ...oldData,
+          pages: oldData.pages.map(page => ({
+            ...page,
+            forms: page.forms.filter(form => form._id !== formId)
+          }))
+        };
+      });
     },
     onError: (err) => {
       console.error('Error deleting form:', err);
     },
   });
+
+
+  const handleScroll = useCallback(() => {
+    if (
+      window.innerHeight + window.scrollY >= document.body.scrollHeight * 0.8 &&
+      !isFetchingNextPage &&
+      hasNextPage
+    ) {
+      fetchNextPage();
+    }
+  }, [isFetchingNextPage, hasNextPage, fetchNextPage]);
+
+  useEffect(() => {
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [handleScroll]);
+
 
   const confirmDelete = (formId) => {
     setSelectedFormId(formId);
@@ -84,6 +80,16 @@ const Dashboard = () => {
       setSelectedFormId(null);
     }
   };
+
+  const forms = data?.pages.flatMap(page => page.forms) || [];
+
+  if (isLoading) {
+    return <Loading />;
+  }
+
+  if (isError) {
+    return <div>Error: {error.message}</div>;
+  }
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -100,9 +106,7 @@ const Dashboard = () => {
         </Link>
       </div>
 
-      {initialLoading ? (
-        <Loading />
-      ) : forms.length > 0 ? (
+      {forms.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {forms.map((form) => (
             <FormCard
@@ -125,7 +129,7 @@ const Dashboard = () => {
         </div>
       )}
 
-      {loading && !initialLoading && (
+      {isFetchingNextPage && (
         <div className="text-center mt-4">
           <Loading />
         </div>

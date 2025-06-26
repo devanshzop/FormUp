@@ -8,7 +8,7 @@ const router = express.Router();
 router.get('/', async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 9;
+    const limit = parseInt(req.query.limit) || 12;
     const skip = (page - 1) * limit;
 
     const [forms, total] = await Promise.all([
