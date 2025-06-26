@@ -12,7 +12,7 @@ const api = axios.create({
 
 export const getForms = async (page = 1) => {
   await new Promise(resolve=>setTimeout(resolve,200))
-  const response = await api.get(`/forms?page=${page}&limit=12`);
+  const response = await api.get(`/forms?page=${page}&limit=9`);
   return response.data; // Ensure it returns { forms: [...], hasMore: true }
 };
 
